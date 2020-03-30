@@ -1,0 +1,315 @@
+---
+title: "Mapping Fayetteville, WV"
+author: "Samuel Workman"
+date: "`r format(Sys.Date(), '%A, %B %d, %Y')`"
+output:
+  html_document:
+    df_print: paged
+bibliography: ggmap.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(citr)
+```
+
+Ever since I was young, I've been fascinated by maps, globes (especially old ones with trade-routes), and cartography in general. So, I was delighted to see a couple of examples of map making fused with data visualization on Twitter recently.
+
+I was inspired to create a map of the county-seat of my home county in West Virginia by beautiful renditions of Springfield, MO by Connor Rothschild at {{< tweet 1197684136842059776 >}} and Ashville, NC by Josh McCrain {{< tweet 1239925248914587649 >}}. Check out their feeds for more.
+
+The libraries below are not common unless you are using mapping data and fuctions normally. This was my first map, so I needed to install these. Using the `remotes` package requires less dependencies, and so is usually quicker than `devtools` when installing other packages.
+
+* `osmdata` contains the open street map data used to plot the roads, bridges, and waterways; Fayetteville shows some holes in the data - more below
+* `ggspatial` provides functionality for a North compass bearing on our maps
+* `showtext` enables the use of Google fonts in ggplot2 graphics
+
+```{r prelims, eval = FALSE, echo = TRUE}
+#library(remotes)
+#remotes::install_github("ropensci/osmdata")
+#remotes::install_github("paleolimbot/ggspatial")
+#remotes::install_github("yixuan/showtext")
+```
+
+R users are usually family with the usual suspects below, especially `tidyverse`. In particular, I use the `ggmap` package to plot the shape files necessary for spatial data [@ggmapcite].
+
+```{r libraries, include=TRUE, eval = TRUE, echo = TRUE, warning = FALSE, message=FALSE}
+library(tidyverse)
+library(osmdata)
+library(showtext)
+library(ggmap)
+library(ggExtra)
+library(ggspatial)
+library(showtext)
+```
+
+Once loading the `osmdata` package, you can view what features are available for given tags below. A note on the bridge tag: it will return "yes". This was confusing until I looked at the data as there seems to be no differentiation in types of bridges - not harmful in this case.
+
+```{r}
+#available_tags("highway")
+#available_tags("bridge")
+```
+
+# Location, Location, Location
+
+To plot the street map for Fayetteville, I need to know its geographic location. The following code will return two latitudes and two longitudes that define the area of Fayetteville. These coordinates form the basis for framing the graph below.
+
+```{r}
+fa_wv <- getbb("Fayetteville West Virginia")
+fa_wv
+```
+
+# Ingesting OSM Data
+
+Next, I pull the actual street data from the open street map package that defines big, medium, and small streets (taken from the posts above). In addition to streets, Fayetteville has two features with worldwide notoriety - the New River and its world-class whitewater and the New River Gorge Bridge (the longest arch bridge in the Western Hemisphere, formerly the world). I grab each of these from the OSM data as well. This code is pillaged from Connor and Josh's excellent examples.
+
+```{r}
+big_streets <- getbb("Fayetteville West Virginia")%>%
+  opq()%>%
+  add_osm_feature(key = "highway", 
+                  value = c("motorway", "primary", "motorway_link", "primary_link")) %>%
+  osmdata_sf()
+
+med_streets <- getbb("Fayetteville West Virginia") %>%
+  opq()%>%
+  add_osm_feature(key = "highway", 
+                  value = c("secondary", "tertiary", "secondary_link", "tertiary_link")) %>%
+  osmdata_sf()
+
+
+small_streets <- getbb("Fayetteville West Virginia") %>%
+  opq()%>%
+  add_osm_feature(key = "highway", 
+                  value = c("residential", "living_street",
+                            "unclassified",
+                            "service", "footway"
+                  )) %>%
+  osmdata_sf()
+
+bridge <- getbb("Fayetteville West Virginia") %>%
+  opq()%>%
+  add_osm_feature(key = "bridge", 
+                  value = "yes"
+                  ) %>%
+  osmdata_sf()
+
+river <- getbb("Fayetteville West Virginia")%>%
+  opq()%>%
+  add_osm_feature(key = "waterway", value = "river") %>%
+  osmdata_sf()
+```
+
+The code below provides a view of the data. Its also useful to scroll through and see what other streets or features that may warrant highlighting in the map.
+
+```{r look, eval=FALSE, echo=FALSE}
+View(big_streets[["osm_lines"]])
+View(med_streets[["osm_lines"]])
+View(small_streets[["osm_lines"]])
+View(bridge[["osm_lines"]])
+View(river[["osm_lines"]])
+```
+
+Its useful to define sets of feature to plot in `ggplot2`. The code below pulls out the data for plotting individual streets for a given location. Remember, we pulled streets from Fayetteville just above. 
+
+```{r prominant}
+us_19 <- big_streets[["osm_lines"]] %>% 
+  filter(ref == "US 19")
+wv_16 <- med_streets[["osm_lines"]] %>%
+  filter(ref == "WV 16")
+fayette_station <- small_streets[["osm_lines"]] %>%
+  filter(name =="Fayette Station Road")
+west_maple_ave <- small_streets[["osm_lines"]] %>%
+  filter(name == "West Maple Avenue")
+maple_ave_west <- small_streets[["osm_lines"]] %>%
+  filter(name == "Maple Avenue West")
+maple_lane <- small_streets[["osm_lines"]] %>%
+  filter(name == "Maple Lane")
+north_court_st <- med_streets[["osm_lines"]] %>%
+  filter(name == "North Court Street")
+nr_gorge_bridge <- bridge[["osm_lines"]] %>%
+  filter(name == "New River Gorge Bridge")
+new_river <- river[["osm_lines"]] %>%
+  filter(name == "New River")
+```
+
+# Fonts
+
+I am an absolutely geek about anything having to do with fonts and writing. The `showtext` package provides funcationality for using, among others, Google fonts in `ggplot2` graphics. I like that adding a font is as easy as telling it which one, then naming it for your code. The `showtext_auto` function below tells `ggplot2` to render the text using these fonts automatically.
+
+```{r fonts}
+## Loading Google fonts (https://fonts.google.com/)
+font_add_google("Libre Baskerville", "baskerville")
+font_add_google("Playfair Display", "playfair")
+
+showtext_auto()
+```
+
+Its nice to plot a few places of interest on the map. And, the code below provides the data for this. I obtained the longitude and latitude data below from Google Maps. The examples cited above used `rvest` to scrape locations, but hey, Fayetteville just ain't that big!!
+
+# Cool Places
+
+```{r landmark}
+essential <- tribble(
+~place, ~lon, ~lat,
+"Bridge Brew Works", 81.11368, 38.01651,
+"Court House", -81.103755, 38.053422, 
+"Pies & Pints", -81.105514, 38.050783,
+"Wood Iron Eatery", -81.102757, 38.053110 
+)
+```
+
+A few words on these. Though not plotted below, [Bridge Brew Works](https://bridgebrewworks.com) easily makes the best beer in the state. The lagers, in particular, are impressive (lagers in general are a bit harder to make well than ales because of strict temperature requirements for fermentation and lagering, but I digress). The Fayette Court House is a historical building with all the pomp and charm and is truly the county-seat - all essential business is conducted there. 
+
+[Pies & Pints](https://piesandpints.net) has the best pizza and beer around. It serves up the aforementioned Bridge Brew Works beers alongside excellent cider from from [Hawk Knob Cider & Mead](https://www.hawkknob.com). Finally, Sheri and I love brunch, and the best place in the county is [Wood Iron Eatery](https://www.woodironeatery.com). I got my Ph.D. in the North American mecca of coffee - Seattle. Wood Iron's coffee is on par with a Seattle coffee-shop, high praise as I'm a coffee snop (tea snob too but that's another post). You'll find they sell the world-famous [J.Q. Dickinson Salt](https://www.jqdsalt.com) there as well in both regular and smoked versions. Great for a steak, BBQ, or finishing. Cathedral Cafe has good food, but the coffee leaves something to be desired. If you are in Fayetteville for rafting, climbing, or biking, then you need to check these places out - they are all in walking distance of one another. I hope these places are still around by the time we all emerge from the COVID-19 plague.
+
+# The Plot, Finally!
+
+On to the plot before I depress myself that I'm stuck in COVID-19 induced isolation far way in Oklahoma. Mostly, the plot below is your typical `ggplot2` setup, except that I am using an atypical geom, `geom_sf` which plots data from a shape file, a necessity for mapping.
+
+I make one call to the `ggspatial` package to get my beloved north compass on the lighter version of the map. I tried to change the style of the 'North' arrow and its color to no avail. Not sure if that's a bug, or me, but its why the symbol appears on the left map only.
+
+```{r}
+solar_light <- ggplot() +
+  geom_sf(data = big_streets$osm_lines,
+          inherit.aes = FALSE,
+          color = "#585858",
+          size = .8,
+          alpha = .8) +
+  geom_sf(data = med_streets$osm_lines,
+          inherit.aes = FALSE,
+          color = "#585858",
+          size = .6,
+          alpha = .6) +
+  geom_sf(data = small_streets$osm_lines,
+          inherit.aes = FALSE,
+          color = "#585858",
+          size = .4,
+          alpha = .3) +
+  geom_sf(data = fayette_station,
+          inherit.aes = FALSE,
+          color = "#d75f00",
+          size = .6,
+          alpha = .6) +
+  geom_sf(data = west_maple_ave,
+          inherit.aes = FALSE,
+          color = "#d70000",
+          size = .4,
+          alpha = .5) +
+  geom_sf(data = maple_ave_west,
+          inherit.aes = FALSE,
+          color = "#d70000",
+          size = .4,
+          alpha = .5) +
+  geom_sf(data = north_court_st,
+          inherit.aes = FALSE,
+          color = "#0087ff",
+          size = .6,
+          alpha = .6) +
+  geom_sf(data = nr_gorge_bridge,
+          inherit.aes = FALSE,
+          color = "#5f8700",
+          size = .8,
+          alpha = 1) +
+  geom_sf(data = new_river,
+          inherit.aes = FALSE,
+          color = "#00afaf",
+          size = 1,
+          alpha = 1) +
+  ggspatial::annotation_north_arrow(location = "tl",
+                                    which_north = "true", 
+                                    height = unit(5, "mm")) +
+  coord_sf(xlim = c(-81.150, -81.060),
+           ylim = c(38.010, 38.080),
+           expand = FALSE) +
+  theme_void() +
+  geom_point(data=essential, aes(x=lon, y=lat), size = 1.5,
+             alpha=.8, fill="#d75f00", color="#d75f00", 
+             pch=19, inherit.aes = F) +
+  theme(panel.background = element_rect(fill = "#ffffd7"))
+```
+
+Note that the locations of the places I love are encoded just after `theme_void` using the longitudes and latitudes I copied over from Google Maps. The major departure from the stellar examples from Connor and Josh is that I solarize the colar pallet of the maps using, of course, the solarized color pallete developed by [Ethan Schoonover](https://ethanschoonover.com/solarized/). I'm a big fan. Mark Ivey's [solarized cheat sheet] (http://www.zovirl.com/2011/07/22/solarized_cheat_sheet/) was a big help in contextualizing how the pallettes work. Below is the solarized dark version for the plot code. Nothing is different save the background color. 
+
+```{r dark}
+solar_dark <- ggplot() +
+  geom_sf(data = big_streets$osm_lines,
+          inherit.aes = FALSE,
+          color = "#585858",
+          size = .8,
+          alpha = .8) +
+  geom_sf(data = med_streets$osm_lines,
+          inherit.aes = FALSE,
+          color = "#585858",
+          size = .6,
+          alpha = .6) +
+  geom_sf(data = small_streets$osm_lines,
+          inherit.aes = FALSE,
+          color = "#585858",
+          size = .4,
+          alpha = .3) +
+  geom_sf(data = fayette_station,
+          inherit.aes = FALSE,
+          color = "#d75f00",
+          size = .6,
+          alpha = .6) +
+  geom_sf(data = west_maple_ave,
+          inherit.aes = FALSE,
+          color = "#d70000",
+          size = .4,
+          alpha = .5) +
+  geom_sf(data = maple_ave_west,
+          inherit.aes = FALSE,
+          color = "#d70000",
+          size = .5,
+          alpha = 1) +
+  geom_sf(data = north_court_st,
+          inherit.aes = FALSE,
+          color = "#0087ff",
+          size = .6,
+          alpha = 1) +
+  geom_sf(data = nr_gorge_bridge,
+          inherit.aes = FALSE,
+          color = "#5f8700",
+          size = .8,
+          alpha = 1) +
+  geom_sf(data = new_river,
+          inherit.aes = FALSE,
+          color = "#00afaf",
+          size = 1,
+          alpha = 1) +
+  coord_sf(xlim = c(-81.150, -81.060),
+           ylim = c(38.010, 38.080),
+           expand = FALSE) +
+  theme_void() +
+  geom_point(data=essential, aes(x=lon, y=lat), size = 1.5,
+             alpha=.8, fill="#d75f00", color="#d75f00", 
+             pch=19, inherit.aes = F) +
+  theme(panel.background = element_rect(fill = "#1c1c1c"))
+```
+
+Finally, I'd like to place these plots side-by-side. This is my first time using the `patchwork` package, but its really nice. The syntax is much simpler than the old `grid.arrange` function, which was fairly simole itself.
+
+```{r}
+library(patchwork)
+solar_fa <- solar_light + solar_dark
+
+solar_fa + plot_annotation(
+  title = "Fayetteville, WV",
+  subtitle = "38.053°N / 81.104°W") &
+  theme(plot.title = element_text(size = 50, 
+                                  family = "baskerville",
+                                  face="bold",hjust=.5),
+        plot.subtitle = element_text(family = "playfair", 
+                                     size = 30, 
+                                     hjust=.5, 
+                                     margin=margin(2, 0, 5, 0)))
+
+ggsave(file="fayetteville_str_map.jpg", units="in", width = 6, height=4.5)
+```
+
+The `patchwork` package also makes it easy to annotation the finished plot, altogether, or in small multiples. I also finally come to the fonts. I like old-school, even Medieval, fonts. Google fonts provides "Libre Baskerville" and "Playfair Disply" drawn from fonts native to the 1700s and 1800s respectively. With Playfair fonts, I also get old-style numbers, which I adore, and even more so for things like titling maps.
+
+Walla!!
+
+# References
+
+<div id="refs"></div>

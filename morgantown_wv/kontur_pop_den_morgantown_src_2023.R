@@ -22,21 +22,22 @@ library(tigris)
 pop <- st_read("kontur_population_US_20231101.gpkg")
 admin <- st_read("kontur_boundaries_US_20230628.gpkg")
 
-wv_places <- places(state = "West Virginia")
-
-mo <- wv_places |> 
-  filter(NAME == "Morgantown") |>
+morgantown <- admin[16182,] |>
   st_transform(crs = st_crs(pop))
 
-mo |> 
+morgantown |> 
   ggplot() +
   geom_sf()
 
-pl_mo <- st_intersection(pop, mo)
+morgantown_pop <- st_intersection(pop, morgantown)
+
+# wv_places <- places(state = "West Virginia")
+
+
 
 # define aspect ratio based on bounding box
 
-bb <- st_bbox(pl_mo)
+bb <- st_bbox(morgantown)
 
 bottom_left <- st_point(c(bb[["xmin"]], bb[["ymin"]])) |> 
   st_sfc(crs = st_crs(pop))
@@ -44,7 +45,7 @@ bottom_left <- st_point(c(bb[["xmin"]], bb[["ymin"]])) |>
 bottom_right <- st_point(c(bb[["xmax"]], bb[["ymin"]])) |> 
   st_sfc(crs = st_crs(pop))
 
-mo |> 
+morgantown |> 
   ggplot() +
   geom_sf() +
   geom_sf(data = bottom_left) +
@@ -60,21 +61,29 @@ height <- st_distance(bottom_left, top_left)
 
 # handle conditions of width or height being the longer side
 
-if (width > height) {
-  w_ratio <- 1
-  h_ratio <- height / width
+if(width > height) {
+  w_ratio = 1
+  h_ratio = height / width
+  
 } else {
-  h_ratio <- 1
-  w_ratio <- width / height
+  h_ratio = 1
+  w_ratio = width / height
 }
+
 
 # convert to raster so we can then convert to matrix
 
 size <- 5000
 
-mo_rast <- mo_rast <- st_rasterize(pl_mo, nx = floor(size * w_ratio), ny = floor(size * h_ratio))
+pop_raster <- st_rasterize(
+  morgantown_pop,
+  nx = floor(size * w_ratio) %>% as.numeric(),
+  ny = floor(size * h_ratio) %>% as.numeric()
+)
 
-mat <- matrix(mo_rast$population, 
+# mo_rast <- st_rasterize(morgantown_pop, nx = floor(size * w_ratio), ny = floor(size * h_ratio))
+
+mat <- matrix(pop_raster$population, 
               nrow = floor(size * w_ratio),
               ncol = floor(size * h_ratio))
 
